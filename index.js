@@ -3,6 +3,8 @@ const app = express();
 const cors = require('cors');
 const  jwt = require('jsonwebtoken');
 require('dotenv').config()
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+
 const port = process.env.PORT || 5000;
 
 
@@ -27,12 +29,33 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
 
     const productCollection = client.db('E-commerceDB').collection('products')
     const cartCollection = client.db('E-commerceDB').collection('carts')
     const userCollection = client.db('E-commerceDB').collection('users')
+    const reviewCollection = client.db('E-commerceDB').collection('reviews')
+    const paymentCollection = client.db('E-commerceDB').collection('payments')
+    const blogCollection = client.db('E-commerceDB').collection('blogs')
+
+
+   
     
+
+
+
+   // reviews
+
+   app.get('/reviews',async(req,res) => {
+
+    const result = await reviewCollection.find().toArray();
+
+    res.send(result)
+   })
+
+
+
+
     // products 
     app.get('/products',async(req,res) => {
       const result = await productCollection.find().toArray();
@@ -40,12 +63,14 @@ async function run() {
       res.send(result)
     })
 
-    app.get('/product/:id',async(req,res) => {
+    app.get('/products/:id',async(req,res) => {
 
 
       const id = req.params.id;
 
-      const query = {_id: new ObjectId(id)}
+      console.log(id)
+
+      const query = {_id: new ObjectId (id)}
 
       const result = await productCollection.findOne(query)
 
@@ -76,13 +101,37 @@ async function run() {
 
       res.send(result);
 
+    })
 
+    app.patch('/products/:id',async(req,res) => {
 
+      const item = req.body;
 
+      const id = req.params.id;
 
+      const filter = {_id: new ObjectId(id)}
 
+      const updatedDoc = {
+
+        $set:{
+         
+          name:item.name,
+          category:item.category,
+          price:item.price,
+          image:item.image
+
+        }
+      }
+
+      const result = await productCollection.updateOne(filter,updatedDoc)
+
+      res.send(result);
 
     })
+
+
+
+    
 
 
      // jwt related api
@@ -262,6 +311,96 @@ async function run() {
       res.send(result);
       
     })
+
+    // payment intent 
+
+    app.post('/create-payment-intent',async(req,res) => {
+
+
+      const {Price} = req.body;
+      const amount = parseInt(Price * 100)
+
+      console.log(amount,'amout inside the insite')
+
+
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: "usd",
+        payment_method_types:['card']
+      
+      });
+      res.send({
+        clientSecret:paymentIntent.client_secret
+      })
+
+
+    })
+
+    // payment 
+
+    app.get('/payments/:email',async(req,res) => {
+
+      const query = { email: req.params.email }
+
+
+   
+   
+      const result = await paymentCollection.find(query).toArray();
+      res.send(result);
+
+    })
+
+    app.post('/payments',async(req,res) => {
+        const payment = req.body;
+        const paymentResult = await paymentCollection.insertOne(payment)
+
+
+        // delete product 
+
+        console.log('payment info',payment);
+
+        const query = {_id:{
+          $in: payment.cartIds.map(id => new ObjectId(id))
+        }};
+        const deleteResult = await cartCollection.deleteMany(query)
+
+        res.send({paymentResult,deleteResult})
+
+  
+
+
+        
+    })
+
+    // blogs colection 
+
+    app.get('/blogs',async(req,res) => {
+      const result = await blogCollection.find().toArray()
+
+      res.send(result)
+    })
+
+    // starts or analytics
+
+    app.get('/admin-stats',async(req,res)  => {
+      const users = await userCollection.estimatedDocumentCount();
+      const products = await productCollection.estimatedDocumentCount();
+      const orders = await paymentCollection.estimatedDocumentCount();
+
+      res.send({
+        users,
+        products,
+        orders
+      })
+    })
+
+
+
+
+
+
+
+
 
 
 
